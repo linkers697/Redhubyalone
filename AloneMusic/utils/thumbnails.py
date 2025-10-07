@@ -7,7 +7,6 @@ import traceback
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 from youtubesearchpython.__future__ import VideosSearch
 
-
 def changeImageSize(maxWidth, maxHeight, image):
     widthRatio = maxWidth / image.size[0]
     heightRatio = maxHeight / image.size[1]
@@ -15,7 +14,6 @@ def changeImageSize(maxWidth, maxHeight, image):
     newHeight = int(heightRatio * image.size[1])
     newImage = image.resize((newWidth, newHeight))
     return newImage
-
 
 def truncate(text):
     words = text.split(" ")
@@ -27,8 +25,9 @@ def truncate(text):
             text2 += " " + w
     return [text1.strip(), text2.strip()]
 
-
 def draw_text_with_outline(draw, pos, text, font, fill, outline_color=(0, 0, 0)):
+    if not hasattr(draw, "text"):
+        return
     x0, y0 = pos
     outline_range = 2
     for dx in range(-outline_range, outline_range + 1):
@@ -38,41 +37,64 @@ def draw_text_with_outline(draw, pos, text, font, fill, outline_color=(0, 0, 0))
             draw.text((x0 + dx, y0 + dy), text, font=font, fill=outline_color)
     draw.text((x0, y0), text, font=font, fill=fill)
 
-
 async def get_thumb(videoid: str):
     url = f"https://www.youtube.com/watch?v={videoid}"
     try:
         results = VideosSearch(url, limit=1)
-        for result in (await results.next())["result"]:
-            title = re.sub("\W+", " ", result.get("title", "Unsupported Title")).title()
-            duration = result.get("duration", "Unknown Mins")
-            thumbnail = result["thumbnails"][0]["url"].split("?")[0]
-            views = result.get("viewCount", {}).get("short", "Unknown Views")
-            channel = result.get("channel", {}).get("name", "Unknown Channel")
+        data = await results.next()
+        if not data or "result" not in data or not data["result"]:
+            print("No video results found")
+            return None
+
+        result = data["result"][0]
+        title = re.sub("\W+", " ", result.get("title", "Unsupported Title")).title()
+        duration = result.get("duration", "Unknown Mins")
+        thumbnail_url = result.get("thumbnails", [{}])[0].get("url", "").split("?")[0]
+        views = result.get("viewCount", {}).get("short", "Unknown Views")
+        channel = result.get("channel", {}).get("name", "Unknown Channel")
+
+        if not thumbnail_url:
+            print("No thumbnail URL found")
+            return None
 
         async with aiohttp.ClientSession() as session:
-            async with session.get(thumbnail) as resp:
+            async with session.get(thumbnail_url) as resp:
                 if resp.status == 200:
-                    f = await aiofiles.open(f"cache/thumb{videoid}.png", mode="wb")
-                    await f.write(await resp.read())
-                    await f.close()
+                    async with aiofiles.open(f"cache/thumb{videoid}.png", mode="wb") as f:
+                        await f.write(await resp.read())
+                else:
+                    print(f"Failed to download thumbnail: {resp.status}")
+                    return None
 
-        icons = Image.open("AloneMusic/assets/icons.png").convert("RGBA")
-        speaker_icon = Image.open("AloneMusic/assets/speaker.png").convert("RGBA")
-        youtube = Image.open(f"cache/thumb{videoid}.png").convert("RGBA")
+        # Open images safely
+        def safe_open(path):
+            try:
+                return Image.open(path).convert("RGBA")
+            except Exception as e:
+                print(f"Error opening image {path}: {e}")
+                return None
+
+        icons = safe_open("AloneMusic/assets/icons.png")
+        speaker_icon = safe_open("AloneMusic/assets/speaker.png")
+        youtube = safe_open(f"cache/thumb{videoid}.png")
+        if not all([icons, speaker_icon, youtube]):
+            return None
+
         youtube_resized = changeImageSize(1280, 720, youtube)
 
-        # Background: blurred + gradient overlay
+        # Background
         bg = youtube_resized.filter(ImageFilter.GaussianBlur(25))
         enhancer = ImageEnhance.Brightness(bg)
         bg = enhancer.enhance(0.4)
         overlay = Image.new("RGBA", bg.size, (15, 15, 25, 200))
         background = Image.alpha_composite(bg, overlay)
-
         draw = ImageDraw.Draw(background)
 
-        # Background watermark "AsianBots"
-        font_bg = ImageFont.truetype("AloneMusic/assets/font3.ttf", 120)
+        # Background watermark
+        try:
+            font_bg = ImageFont.truetype("AloneMusic/assets/font3.ttf", 120)
+        except:
+            font_bg = ImageFont.load_default()
         draw.text((320, 250), "AsianBots", font=font_bg, fill=(255, 255, 255, 50))
 
         # Logo crop + glow + shadow
@@ -81,45 +103,50 @@ async def get_thumb(videoid: str):
         rand_color = (random.randint(100, 255), random.randint(50, 200), random.randint(100, 255))
         logo = youtube.crop((x1, y1, x2, y2))
         logo.thumbnail((350, 350), Image.ANTIALIAS)
-
         glow = ImageOps.expand(logo, border=20, fill=rand_color)
         glow = glow.filter(ImageFilter.GaussianBlur(15))
         background.paste(glow, (80, 120), glow)
         background.paste(logo, (100, 140), logo)
 
-        font_chan = ImageFont.truetype("AloneMusic/assets/font2.ttf", 30)
-        font_small = ImageFont.truetype("AloneMusic/assets/font.ttf", 28)
-        font_title = ImageFont.truetype("AloneMusic/assets/font3.ttf", 50)
+        try:
+            font_chan = ImageFont.truetype("AloneMusic/assets/font2.ttf", 30)
+        except:
+            font_chan = ImageFont.load_default()
+        try:
+            font_small = ImageFont.truetype("AloneMusic/assets/font.ttf", 28)
+        except:
+            font_small = ImageFont.load_default()
+        try:
+            font_title = ImageFont.truetype("AloneMusic/assets/font3.ttf", 50)
+        except:
+            font_title = ImageFont.load_default()
 
         stitle = truncate(title)
         draw_text_with_outline(draw, (565, 160), stitle[0], font_title, (255, 255, 255))
         if stitle[1]:
             draw_text_with_outline(draw, (565, 220), stitle[1], font_title, (240, 240, 240))
 
-        # channel + views
         draw.text((565, 300), f"{channel} | {views[:23]}", font=font_chan, fill=(200, 200, 200))
 
-        # modern progress bar
         draw.rounded_rectangle([(565, 370), (1130, 390)], radius=10, fill=(50, 50, 50))
         draw.rounded_rectangle([(565, 370), (950, 390)], radius=10, fill=rand_color)
         draw.ellipse([(940, 365), (970, 395)], fill=rand_color)
 
-        # time
         draw.text((565, 400), "00:00", font=font_chan, fill=(255, 255, 255))
         draw.text((1080, 400), duration[:23], font=font_chan, fill=(255, 255, 255))
 
-        # music icons
-        icons_resized = icons.resize((560, 58), Image.ANTIALIAS)
-        background.paste(icons_resized, (565, 460), icons_resized)
+        if icons:
+            icons_resized = icons.resize((560, 58), Image.ANTIALIAS)
+            background.paste(icons_resized, (565, 460), icons_resized)
 
-        # small overlay thumbnail
-        small_thumb = youtube.resize((120, 70), Image.ANTIALIAS)
-        background.paste(small_thumb, (1080, 30), small_thumb)
+        if youtube:
+            small_thumb = youtube.resize((120, 70), Image.ANTIALIAS)
+            background.paste(small_thumb, (1080, 30), small_thumb)
 
-        # speaker icon with glow
-        speaker_icon = speaker_icon.resize((80, 80), Image.ANTIALIAS)
-        glow_speaker = ImageOps.expand(speaker_icon, border=10, fill=rand_color).filter(ImageFilter.GaussianBlur(8))
-        background.paste(glow_speaker, (1150, 550), glow_speaker)
+        if speaker_icon:
+            speaker_icon = speaker_icon.resize((80, 80), Image.ANTIALIAS)
+            glow_speaker = ImageOps.expand(speaker_icon, border=10, fill=rand_color).filter(ImageFilter.GaussianBlur(8))
+            background.paste(glow_speaker, (1150, 550), glow_speaker)
 
         try:
             os.remove(f"cache/thumb{videoid}.png")
