@@ -66,7 +66,7 @@ async def get_thumb(videoid: str):
                     print(f"Failed to download thumbnail: {resp.status}")
                     return None
 
-        # Open images safely
+        # Safe image opening
         def safe_open(path):
             try:
                 return Image.open(path).convert("RGBA")
@@ -82,7 +82,7 @@ async def get_thumb(videoid: str):
 
         youtube_resized = changeImageSize(1280, 720, youtube)
 
-        # Background
+        # Background: blur + overlay
         bg = youtube_resized.filter(ImageFilter.GaussianBlur(25))
         enhancer = ImageEnhance.Brightness(bg)
         bg = enhancer.enhance(0.4)
@@ -97,7 +97,7 @@ async def get_thumb(videoid: str):
             font_bg = ImageFont.load_default()
         draw.text((320, 250), "AsianBots", font=font_bg, fill=(255, 255, 255, 50))
 
-        # Logo crop + glow + shadow
+        # Logo crop + glow
         Xc, Yc = youtube.width / 2, youtube.height / 2
         x1, y1, x2, y2 = Xc - 250, Yc - 250, Xc + 250, Yc + 250
         rand_color = (random.randint(100, 255), random.randint(50, 200), random.randint(100, 255))
@@ -108,6 +108,7 @@ async def get_thumb(videoid: str):
         background.paste(glow, (80, 120), glow)
         background.paste(logo, (100, 140), logo)
 
+        # Fonts
         try:
             font_chan = ImageFont.truetype("AloneMusic/assets/font2.ttf", 30)
         except:
@@ -128,6 +129,7 @@ async def get_thumb(videoid: str):
 
         draw.text((565, 300), f"{channel} | {views[:23]}", font=font_chan, fill=(200, 200, 200))
 
+        # Progress bar
         draw.rounded_rectangle([(565, 370), (1130, 390)], radius=10, fill=(50, 50, 50))
         draw.rounded_rectangle([(565, 370), (950, 390)], radius=10, fill=rand_color)
         draw.ellipse([(940, 365), (970, 395)], fill=rand_color)
@@ -135,14 +137,17 @@ async def get_thumb(videoid: str):
         draw.text((565, 400), "00:00", font=font_chan, fill=(255, 255, 255))
         draw.text((1080, 400), duration[:23], font=font_chan, fill=(255, 255, 255))
 
+        # Music icons
         if icons:
             icons_resized = icons.resize((560, 58), Image.ANTIALIAS)
             background.paste(icons_resized, (565, 460), icons_resized)
 
+        # Small thumbnail
         if youtube:
             small_thumb = youtube.resize((120, 70), Image.ANTIALIAS)
             background.paste(small_thumb, (1080, 30), small_thumb)
 
+        # Speaker icon
         if speaker_icon:
             speaker_icon = speaker_icon.resize((80, 80), Image.ANTIALIAS)
             glow_speaker = ImageOps.expand(speaker_icon, border=10, fill=rand_color).filter(ImageFilter.GaussianBlur(8))
@@ -157,6 +162,6 @@ async def get_thumb(videoid: str):
         background.save(tpath)
         return tpath
 
-    except Exception as e:
+    except Exception:
         traceback.print_exc()
         return None
